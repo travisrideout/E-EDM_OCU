@@ -17,5 +17,12 @@
   <ItemGroup>
     <None Include="Vehicle.ino" />
   </ItemGroup>
- 
+  <ItemGroup>
+    <ClInclude Include="Vehicle.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="__vm\.Vehicle.vsarduino.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>

@@ -7,6 +7,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Controller", "Controller\Co
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Vehicle", "Vehicle\Vehicle.vcxproj", "{310AE150-35E3-4BB2-8BB1-271386CB6D14}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pingpair_ack", "..\..\..\Arduino\My Examples\pingpair_ack\pingpair_ack.vcxproj", "{840250F3-1D89-43C0-8A79-0AF332B35C77}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GettingStarted_HandlingData", "..\..\..\Arduino\My Examples\GettingStarted_HandlingData\GettingStarted_HandlingData.vcxproj", "{920A04A5-D4E8-4203-81E0-57A2E23AE6E3}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pingpair_sleepy", "..\..\..\Arduino\My Examples\pingpair_sleepy\pingpair_sleepy.vcxproj", "{37BDA6B8-AE79-43F5-BF85-19E4344A5C34}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -21,6 +27,18 @@ Global
 		{310AE150-35E3-4BB2-8BB1-271386CB6D14}.Debug|x86.Build.0 = Debug|Win32
 		{310AE150-35E3-4BB2-8BB1-271386CB6D14}.Release|x86.ActiveCfg = Release|Win32
 		{310AE150-35E3-4BB2-8BB1-271386CB6D14}.Release|x86.Build.0 = Release|Win32
+		{840250F3-1D89-43C0-8A79-0AF332B35C77}.Debug|x86.ActiveCfg = Debug|Win32
+		{840250F3-1D89-43C0-8A79-0AF332B35C77}.Debug|x86.Build.0 = Debug|Win32
+		{840250F3-1D89-43C0-8A79-0AF332B35C77}.Release|x86.ActiveCfg = Release|Win32
+		{840250F3-1D89-43C0-8A79-0AF332B35C77}.Release|x86.Build.0 = Release|Win32
+		{920A04A5-D4E8-4203-81E0-57A2E23AE6E3}.Debug|x86.ActiveCfg = Debug|Win32
+		{920A04A5-D4E8-4203-81E0-57A2E23AE6E3}.Debug|x86.Build.0 = Debug|Win32
+		{920A04A5-D4E8-4203-81E0-57A2E23AE6E3}.Release|x86.ActiveCfg = Release|Win32
+		{920A04A5-D4E8-4203-81E0-57A2E23AE6E3}.Release|x86.Build.0 = Release|Win32
+		{37BDA6B8-AE79-43F5-BF85-19E4344A5C34}.Debug|x86.ActiveCfg = Debug|Win32
+		{37BDA6B8-AE79-43F5-BF85-19E4344A5C34}.Debug|x86.Build.0 = Debug|Win32
+		{37BDA6B8-AE79-43F5-BF85-19E4344A5C34}.Release|x86.ActiveCfg = Release|Win32
+		{37BDA6B8-AE79-43F5-BF85-19E4344A5C34}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
