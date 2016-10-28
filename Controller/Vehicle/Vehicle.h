@@ -59,7 +59,7 @@ enum faultCodes {
 bool fault_state = false;
 
 unsigned long prev_time;
-const long heartbeat_timeout = 150;		//heartbeat timer 150ms
+const long heartbeat_timeout = 200;		//heartbeat timer 150ms
 int deadband = 5;						// joystick centered deadband
 int faultPrintTimer = 5000;				//error code serial print delay, ms
 int clearFaultTimer = 3000;				//error code serial print delay, ms

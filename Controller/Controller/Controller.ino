@@ -6,6 +6,11 @@
 
 //TODO: do heartbeat on interrupt timer
 //TODO: utilize low power modes to save battery
+//TODO: Make Vibe non-blocking
+//TODO: Programatically set radio PAlevel based on signal strength/lossed packets
+//TODO: measure battery voltage
+//TODO: Scan for best channel on startup and tell vehicle radio to switch to that channel
+//TODO: Handshake with vehicle
 
 #include "Controller.h"
 
@@ -32,7 +37,7 @@ void setup() {
 
 	// Setup and configure rf radio
 	radio.begin();
-	radio.setPALevel(RF24_PA_MAX);
+	radio.setPALevel(RF24_PA_MIN);
 	//radio.setAutoAck(1);                    // Ensure autoACK is enabled
 	//radio.enableAckPayload();               // Allow optional ack payloads
 	radio.setRetries(0, 15);                 // Smallest time between retries, max no. of retries
@@ -214,7 +219,7 @@ bool establishConnection() {
 	}
 	Serial.println(" ");
 	Serial.println("Connection Established");
-	vibe(2, 100, 100);
+	//vibe(2, 100, 100);
 	
 	return true;
 }
@@ -276,8 +281,8 @@ bool calibrateJoystick() {
 		vibe(1, 500);
 		xAxis.center = analogRead(xAxisPin);
 		yAxis.center = analogRead(yAxisPin);
-		xAxis.deadband = 20;
-		yAxis.deadband = 20;
+		xAxis.deadband = 40;
+		yAxis.deadband = 40;
 		delay(2000);
 		Serial.println("Circle Joystick");
 		vibe(2, 500, 500);

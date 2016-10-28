@@ -29,7 +29,7 @@ struct joystick {
 	int center = 512;
 	int min = 0;
 	int max = 1023;
-	int deadband = 20;
+	int deadband = 40;
 }xAxis, yAxis;
 
 unsigned long prev_time;

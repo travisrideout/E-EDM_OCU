@@ -4,7 +4,7 @@
  Author:	travis.rideout
 */
 
-//TODO: keeping tring to re-establish connection when in fault
+
 
 #include "Vehicle.h"
 
@@ -58,19 +58,28 @@ void loop() {
 	//read message
 	//parse message into outputs
 	//if no message within heartbeat timeout then set outputs to zero
-	if (!fault_state) {
-		if (radio.available()) {
-			while (radio.available()) {                          // While there is data ready
-				radio.read(&newValues, sizeof(newValues));             // Get the payload
-			}
-			parseMessage();
-			prev_time = millis();
-		} else if (millis() - prev_time > heartbeat_timeout) {
-			prev_time = millis();
-			Serial.println("Tried to set fault");
-			//setFault(Loss_Of_Signal);
+
+	if (radio.available()) {
+		while (radio.available()) {                          // While there is data ready
+			radio.read(&newValues, sizeof(newValues));       // Get the payload			
 		}
-	} else {
+		if (fault_state && faultCode == Loss_Of_Signal) {
+			if (establishConnection()) {
+				Serial.println("Connection Re-Established - Fault Self Cleared");
+				clearFault();
+			}			
+		}
+		parseMessage();
+		if (!fault_state) {
+			setOutputs();
+		}
+		prev_time = millis();
+	} else if (millis() - prev_time > heartbeat_timeout && !fault_state) {
+		prev_time = millis();
+		Serial.println("Tried to set fault");
+		setFault(Loss_Of_Signal);
+	}
+	if (fault_state) {
 		if (digitalRead(clearFaultPin) == 0) {
 			unsigned long pressedTime = millis();
 			bool clearButtonDown = true;
@@ -81,7 +90,7 @@ void loop() {
 					clearButtonDown = false;
 				} else {
 					clearButtonDown = !digitalRead(clearFaultPin);
-				}				
+				}
 				delay(50);	//debounce
 			}
 		}
@@ -129,26 +138,30 @@ bool establishConnection() {
 	long startTime = millis();
 	int count = 0;
 	bool ledBlinkState = false;
+	int blinkrate = 1000;
+	long localtime = millis();
 	//flush rx buffer first
 	while (radio.available()) {
 		dataStruct buf;
 		radio.read(&buf, sizeof(buf));
 		Serial.println("Flushing buffer");
 	}
-	while (!radio.available()) {
-		if (count < 20) {
-			Serial.print(".");
-			count++;
-		} else {
-			count = 0;
-			Serial.println("!");
-			
-		}
-		ledBlinkState = !ledBlinkState;
-		if (ledBlinkState) {
-			led.blue = 125;
-		} else {
-			led.blue = 0;
+	while (!radio.available()) {		
+		if (millis() - localtime > blinkrate) {
+			localtime = millis();
+			if (count < 20) {
+				Serial.print(".");
+				count++;
+			} else {
+				count = 0;
+				Serial.println("!");
+			}
+			ledBlinkState = !ledBlinkState;
+			if (ledBlinkState) {
+				led.blue = 125;
+			} else {
+				led.blue = 0;
+			}
 		}
 		if (millis() - startTime > 60000) {
 			Serial.println(" ");
@@ -157,7 +170,7 @@ bool establishConnection() {
 			return false;
 		}
 		analogWrite(ledBluePin, led.blue);
-		delay(1000);		
+		delay(50);		
 	}
 	Serial.println(" ");
 	Serial.println("Connection Established");
@@ -165,7 +178,6 @@ bool establishConnection() {
 	led.green = 125;
 	analogWrite(ledBluePin, led.blue);
 	analogWrite(ledGreenPin, led.green);
-
 	return true;
 }
 
@@ -217,9 +229,7 @@ void parseMessage() {
 		rightMotor.speed = abs(rightMotor.speed);
 	}
 
-	//buttons 1&2 not used yet
-
-	setOutputs();
+	//buttons 1&2 not used yet	
 }
 
 void setOutputs() {
@@ -285,6 +295,7 @@ void setFault(faultCodes code) {
 	led.green = 0;
 	led.blue = 0;
 	setOutputs();
+	printFault();
 }
 
 void printFault() {
