@@ -4,6 +4,7 @@
 #include "RF24.h"
 #include "printf.h"
 #include <EEPROM.h>
+#include <TimerOne.h>
 
 #define debug;	//uncomment to get additional debug info over serial
 
@@ -40,6 +41,13 @@ const int calibrate_timeout = 3000;
 bool calibrate = false;
 const int xJoyMemLoc = 0;
 const int yJoyMemLoc = xJoyMemLoc + sizeof(xAxis);
+
+//Vibe interrupt variables
+int vibePulses = 0;
+int vibeDuration = 100;
+int vibeDurationCounter = 100;
+int vibeDelay = 100;
+int vibeDelayCounter = 100;
 
 //Radio Setup
 //bool radioNumber = 1;	//Set this radio as radio number 0 or 1

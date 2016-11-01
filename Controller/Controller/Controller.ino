@@ -6,11 +6,11 @@
 
 //TODO: do heartbeat on interrupt timer
 //TODO: utilize low power modes to save battery
-//TODO: Make Vibe non-blocking
 //TODO: Programatically set radio PAlevel based on signal strength/lossed packets
 //TODO: measure battery voltage
 //TODO: Scan for best channel on startup and tell vehicle radio to switch to that channel
-//TODO: Handshake with vehicle
+//TODO: Handshake with vehicle using ack and ID
+//TODO: Implement controller ID's to avoid multiple controller interference
 
 #include "Controller.h"
 
@@ -24,7 +24,7 @@ void setup() {
 	//Print header
 	Serial.println("HDT ROBOTICS");
 	Serial.println("E-EDM CONTROLLER");
-	Serial.println("VERSION: 1.0");
+	Serial.println("VERSION: 1.1");
 	Serial.println(" ");
 
 	//Set pin modes
@@ -37,7 +37,7 @@ void setup() {
 
 	// Setup and configure rf radio
 	radio.begin();
-	radio.setPALevel(RF24_PA_MIN);
+	radio.setPALevel(RF24_PA_MAX);
 	//radio.setAutoAck(1);                    // Ensure autoACK is enabled
 	//radio.enableAckPayload();               // Allow optional ack payloads
 	radio.setRetries(0, 15);                 // Smallest time between retries, max no. of retries
@@ -51,6 +51,9 @@ void setup() {
 	initializeData(newValues);
 	initializeData(heartbeat);
 	initializeJoysticks();
+		
+	Timer1.initialize(1000);	//start interrupt timer1 @ 1ms
+	Timer1.attachInterrupt(vibe);
 
 	prev_time = millis();
 
@@ -75,6 +78,27 @@ void loop() {
 		prev_time = millis();
 	}	
 	calibrateJoystick();
+}
+
+//ISR for vibe motor
+void vibe() {
+	if (vibePulses) {
+		if (vibeDurationCounter) {
+			if (vibeDurationCounter == vibeDuration) {
+				digitalWrite(vibePin, HIGH);
+			}			
+			vibeDurationCounter--;
+		} else if (vibeDelayCounter) {
+			if (vibeDelayCounter == vibeDelay) {
+				digitalWrite(vibePin, LOW);
+			}			
+			vibeDelayCounter--;
+		} else {
+			vibePulses--;
+			vibeDurationCounter = vibeDuration;
+			vibeDelayCounter = vibeDelay;
+		}
+	}
 }
 
 //initialize data struct to zero values
@@ -191,18 +215,27 @@ bool sendData(dataStruct &data) {
 
 //vibe the controller
 //BLOCKS processor
-void vibe(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
-	for (int i = 0; i < numPulses; i++) {
-		digitalWrite(vibePin, 1);
-		delay(pulseDuration);
-		digitalWrite(vibePin, 0);
-		delay(pulseDelay);
-	}
+//void vibes(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
+//	for (int i = 0; i < numPulses; i++) {
+//		digitalWrite(vibePin, 1);
+//		delay(pulseDuration);
+//		digitalWrite(vibePin, 0);
+//		delay(pulseDelay);
+//	}
+//}
+
+//Set a vibe command. Runs on interrupt timer1. All times in ms
+void setVibe(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
+	vibePulses = numPulses;
+	vibeDuration = pulseDuration;
+	vibeDurationCounter = pulseDuration;
+	vibeDelay = pulseDelay;
+	vibeDelayCounter = pulseDelay;
 }
 
-//checks for connection every 3sec
-//double vibes while no connection
-//long vibe once connection is made
+//Checks for connection every 3sec
+//Single short vibe while no connection
+//Long vibe once connection is made
 bool establishConnection() {
 	Serial.println("Waiting for connection");
 	int count = 0;
@@ -214,12 +247,12 @@ bool establishConnection() {
 			count = 0;
 			Serial.println("!");
 		}
-		vibe(1,100);
+		setVibe();
 		delay(3000);		
 	}
 	Serial.println(" ");
 	Serial.println("Connection Established");
-	//vibe(2, 100, 100);
+	setVibe(1, 500);
 	
 	return true;
 }
@@ -245,14 +278,14 @@ bool selfCheck() {
 		analogRead(yAxisPin) < yAxis.center + yAxis.deadband &&
 		analogRead(yAxisPin) > yAxis.center - yAxis.deadband) {
 		Serial.println("Controller checks OK");		
-		vibe(1, 100, 1000);
+		setVibe();
 		return true;
 	} else {
 		//Stick here until reset		
 		while (1) {
 			Serial.println("Controller Failed Self-check");
 			Serial.println("Restart or Try Calibrating Joystick");
-			vibe(3, 200, 200);
+			setVibe(3, 200, 200);
 			if (calibrateJoystick()) {
 				if (selfCheck()) {
 					return true;
@@ -278,14 +311,14 @@ bool calibrateJoystick() {
 	if (calibrate && millis() - calibrate_time > calibrate_timeout) {
 		Serial.println("JOYSTICK CALIBRATION STARTED");
 		Serial.println("Leave Joystick Centered");
-		vibe(1, 500);
+		setVibe(1, 500);
 		xAxis.center = analogRead(xAxisPin);
 		yAxis.center = analogRead(yAxisPin);
 		xAxis.deadband = 40;
 		yAxis.deadband = 40;
 		delay(2000);
 		Serial.println("Circle Joystick");
-		vibe(2, 500, 500);
+		setVibe(2, 500, 500);
 		int time = millis();
 		xAxis.min = xAxis.center;
 		xAxis.max = xAxis.center;
@@ -308,7 +341,7 @@ bool calibrateJoystick() {
 		}
 		EEPROM.put(xJoyMemLoc, xAxis);
 		EEPROM.put(yJoyMemLoc, yAxis);
-		vibe(3, 500, 500);
+		setVibe(3, 500, 500);
 		Serial.println();
 		Serial.println("JOYSTICK CALIBRATION COMPLETE");
 		printJoystickCalibration();
