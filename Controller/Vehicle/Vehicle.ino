@@ -4,7 +4,12 @@
  Author:	travis.rideout
 */
 
-
+//TODO: Add touch screen interface for debugging and additional functions on board
+//TODO: esp8266 wifi serial bus for phone/laptop debug wirelessly
+//TODO: Scan for best channel on startup and tell controller radio to switch to that channel
+//TODO: Show connection, controller ID, inputs, battery voltage, etc.
+//TODO: setable max speeds
+//TODO: brakes?
 
 #include "Vehicle.h"
 
@@ -49,6 +54,11 @@ void setup() {
 	initializeData(newValues);
 	initializeOutputs();
 
+	//initialize encryption
+	chacha.setNumRounds(cypher.rounds);
+	chacha.setKey(cypher.key, cypher.keySize);
+	chacha.setIV(cypher.iv, chacha.ivSize());
+
 	prev_time = millis();
 	establishConnection();
 }
@@ -61,7 +71,24 @@ void loop() {
 
 	if (radio.available()) {
 		while (radio.available()) {                          // While there is data ready
-			radio.read(&newValues, sizeof(newValues));       // Get the payload			
+			byte msg[sizeof(newValues)];
+			byte msgCrypt[sizeof(newValues)]; 
+			radio.read(&msgCrypt, sizeof(newValues));       // Get the payload			
+			
+			byte seed[8];
+			Serial.print("Decrypt seed = ");
+			for (uint8_t i = 0; i < 8; i++) {
+				seed[i] = msgCrypt[i];
+				Serial.print(seed[i]);
+				Serial.print(", ");
+			}
+			Serial.println();
+			chacha.setIV(cypher.iv, chacha.ivSize());
+			if (!chacha.setCounter(seed, sizeof(seed))) {
+				Serial.println("Failed to set decrypt counter!");
+			}
+			chacha.decrypt(msg, msgCrypt, sizeof(msgCrypt));
+			memcpy(&newValues, msg, sizeof(newValues));
 		}
 		if (fault_state && faultCode == Loss_Of_Signal) {
 			if (establishConnection()) {
@@ -76,7 +103,6 @@ void loop() {
 		prev_time = millis();
 	} else if (millis() - prev_time > heartbeat_timeout && !fault_state) {
 		prev_time = millis();
-		Serial.println("Tried to set fault");
 		setFault(Loss_Of_Signal);
 	}
 	if (fault_state) {

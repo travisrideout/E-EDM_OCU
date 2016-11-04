@@ -15,6 +15,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pingpair_sleepy", "..\..\..
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scanner", "..\..\..\Arduino\My Examples\scanner\scanner.vcxproj", "{E939A552-6423-4C20-B9AE-DBD387BE10E2}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TestChaCha", "..\..\..\Arduino\My Examples\TestChaCha\TestChaCha.vcxproj", "{35FEA13C-2F20-48CA-97FE-B1375F716146}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "helloworld_rx", "..\..\..\Arduino\My Examples\helloworld_rx\helloworld_rx.vcxproj", "{9C526275-EED2-46DB-BF6D-642417C475E5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -45,6 +49,14 @@ Global
 		{E939A552-6423-4C20-B9AE-DBD387BE10E2}.Debug|x86.Build.0 = Debug|Win32
 		{E939A552-6423-4C20-B9AE-DBD387BE10E2}.Release|x86.ActiveCfg = Release|Win32
 		{E939A552-6423-4C20-B9AE-DBD387BE10E2}.Release|x86.Build.0 = Release|Win32
+		{35FEA13C-2F20-48CA-97FE-B1375F716146}.Debug|x86.ActiveCfg = Debug|Win32
+		{35FEA13C-2F20-48CA-97FE-B1375F716146}.Debug|x86.Build.0 = Debug|Win32
+		{35FEA13C-2F20-48CA-97FE-B1375F716146}.Release|x86.ActiveCfg = Release|Win32
+		{35FEA13C-2F20-48CA-97FE-B1375F716146}.Release|x86.Build.0 = Release|Win32
+		{9C526275-EED2-46DB-BF6D-642417C475E5}.Debug|x86.ActiveCfg = Debug|Win32
+		{9C526275-EED2-46DB-BF6D-642417C475E5}.Debug|x86.Build.0 = Debug|Win32
+		{9C526275-EED2-46DB-BF6D-642417C475E5}.Release|x86.ActiveCfg = Release|Win32
+		{9C526275-EED2-46DB-BF6D-642417C475E5}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

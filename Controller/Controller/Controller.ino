@@ -4,17 +4,14 @@
  Author:	travis.rideout
 */
 
-//TODO: do heartbeat on interrupt timer
 //TODO: utilize low power modes to save battery
 //TODO: Programatically set radio PAlevel based on signal strength/lossed packets
 //TODO: measure battery voltage
-//TODO: Scan for best channel on startup and tell vehicle radio to switch to that channel
 //TODO: Handshake with vehicle using ack and ID
 //TODO: Implement controller ID's to avoid multiple controller interference
+//TODO: Disallow deadman initialization with joystick not centered or buttons pressed
 
 #include "Controller.h"
-
-int count = 0;
 
 // the setup function runs once when you press reset or power the board
 void setup() {
@@ -51,8 +48,14 @@ void setup() {
 	initializeData(newValues);
 	initializeData(heartbeat);
 	initializeJoysticks();
+
+	//initialize encryption
+	chacha.setNumRounds(cypher.rounds);
+	chacha.setKey(cypher.key, cypher.keySize);
+	chacha.setIV(cypher.iv, chacha.ivSize());
 		
-	Timer1.initialize(1000);	//start interrupt timer1 @ 1ms
+	//Initialize ISR
+	Timer1.initialize(100000);	//start interrupt timer1 @ 100ms
 	Timer1.attachInterrupt(vibe);
 
 	prev_time = millis();
@@ -63,7 +66,8 @@ void setup() {
 
 // the loop function runs over and over again until power down or reset
 void loop() {	
-	if (millis() - prev_time > message_frequency && getInputs()) {		
+	if (millis() - prev_time > message_frequency && getInputs()) {	
+		generateSeed(newValues);
 		if (!sendData(newValues)) {
 			establishConnection();
 		}
@@ -72,6 +76,7 @@ void loop() {
 		Serial.print("sending heartbeat message: ");
 		Serial.println(count);
 		count++;
+		generateSeed(heartbeat);
 		if (!sendData(heartbeat)) {
 			establishConnection();
 		}
@@ -194,9 +199,31 @@ bool compareValues(dataStruct &oldData, dataStruct &newData) {
 	}
 }
 
+void generateSeed(dataStruct &data) {
+	randomSeed(millis());
+	for (uint8_t i = 0; i < 8; i++) {
+		data.seed[i] = (byte)random(0, 255);
+	}	
+}
+
 bool sendData(dataStruct &data) {
-	radio.stopListening();                                  // First, stop listening so we can talk.
-	if (!radio.write(&data, sizeof(data))) {
+	byte msg[sizeof(data)];
+	byte msgCrypt[sizeof(data)];
+	memcpy(msg, &data, sizeof(data));
+	chacha.setIV(cypher.iv, chacha.ivSize());
+	if (!chacha.setCounter(data.seed, sizeof(data.seed))) {
+		Serial.println("Failed to set counter!");
+	}
+	chacha.encrypt(msgCrypt, msg, sizeof(msg));
+	Serial.print("Encrypt seed = ");
+	for (uint8_t i = 0; i < 8; i++) {
+		msgCrypt[i] = data.seed[i];
+		Serial.print(msgCrypt[i]);
+		Serial.print(", ");
+	}
+	Serial.println();
+	radio.stopListening();                                 
+	if (!radio.write(&msgCrypt, sizeof(msgCrypt))) {
 		Serial.println("Failed to send message");
 		return false;
 	} 
@@ -213,19 +240,8 @@ bool sendData(dataStruct &data) {
 	return true;
 }
 
-//vibe the controller
-//BLOCKS processor
-//void vibes(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
-//	for (int i = 0; i < numPulses; i++) {
-//		digitalWrite(vibePin, 1);
-//		delay(pulseDuration);
-//		digitalWrite(vibePin, 0);
-//		delay(pulseDelay);
-//	}
-//}
-
-//Set a vibe command. Runs on interrupt timer1. All times in ms
-void setVibe(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
+//Set a vibe command. Runs on interrupt timer1. All times in multiples of 100 ms
+void setVibe(int numPulses = 1, int pulseDuration = 1, int pulseDelay = 1) {
 	vibePulses = numPulses;
 	vibeDuration = pulseDuration;
 	vibeDurationCounter = pulseDuration;
@@ -239,6 +255,7 @@ void setVibe(int numPulses = 1, int pulseDuration = 100, int pulseDelay = 100) {
 bool establishConnection() {
 	Serial.println("Waiting for connection");
 	int count = 0;
+	generateSeed(heartbeat);
 	while (!sendData(heartbeat)) {
 		if (count < 20) {
 			Serial.print(".");
@@ -248,11 +265,12 @@ bool establishConnection() {
 			Serial.println("!");
 		}
 		setVibe();
+		generateSeed(heartbeat);
 		delay(3000);		
 	}
 	Serial.println(" ");
 	Serial.println("Connection Established");
-	setVibe(1, 500);
+	setVibe(1, 5);
 	
 	return true;
 }
@@ -285,7 +303,7 @@ bool selfCheck() {
 		while (1) {
 			Serial.println("Controller Failed Self-check");
 			Serial.println("Restart or Try Calibrating Joystick");
-			setVibe(3, 200, 200);
+			setVibe(3, 2, 2);
 			if (calibrateJoystick()) {
 				if (selfCheck()) {
 					return true;
@@ -311,14 +329,14 @@ bool calibrateJoystick() {
 	if (calibrate && millis() - calibrate_time > calibrate_timeout) {
 		Serial.println("JOYSTICK CALIBRATION STARTED");
 		Serial.println("Leave Joystick Centered");
-		setVibe(1, 500);
+		setVibe(1, 5);
 		xAxis.center = analogRead(xAxisPin);
 		yAxis.center = analogRead(yAxisPin);
 		xAxis.deadband = 40;
 		yAxis.deadband = 40;
 		delay(2000);
 		Serial.println("Circle Joystick");
-		setVibe(2, 500, 500);
+		setVibe(2, 5, 5);
 		int time = millis();
 		xAxis.min = xAxis.center;
 		xAxis.max = xAxis.center;
@@ -341,7 +359,7 @@ bool calibrateJoystick() {
 		}
 		EEPROM.put(xJoyMemLoc, xAxis);
 		EEPROM.put(yJoyMemLoc, yAxis);
-		setVibe(3, 500, 500);
+		setVibe(3, 5, 5);
 		Serial.println();
 		Serial.println("JOYSTICK CALIBRATION COMPLETE");
 		printJoystickCalibration();
