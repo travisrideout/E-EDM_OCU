@@ -84,7 +84,7 @@ void loop() {
 			}
 			Serial.println();
 			chacha.setIV(cypher.iv, chacha.ivSize());
-			if (!chacha.setCounter(seed, sizeof(seed))) {
+			if (!chacha.setCounter(seed, sizeof(fffseed))) {
 				Serial.println("Failed to set decrypt counter!");
 			}
 			chacha.decrypt(msg, msgCrypt, sizeof(msgCrypt));
