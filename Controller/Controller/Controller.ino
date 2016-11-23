@@ -215,13 +215,13 @@ bool sendData(dataStruct &data) {
 		Serial.println("Failed to set counter!");
 	}
 	chacha.encrypt(msgCrypt, msg, sizeof(msg));
-	Serial.print("Encrypt seed = ");
+	//Serial.print("Encrypt seed = ");
 	for (uint8_t i = 0; i < 8; i++) {
 		msgCrypt[i] = data.seed[i];
-		Serial.print(msgCrypt[i]);
-		Serial.print(", ");
+		//Serial.print(msgCrypt[i]);
+		//Serial.print(", ");
 	}
-	Serial.println();
+	//Serial.println();
 	radio.stopListening();                                 
 	if (!radio.write(&msgCrypt, sizeof(msgCrypt))) {
 		Serial.println("Failed to send message");

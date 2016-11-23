@@ -9,14 +9,14 @@
 #define debug;	//uncomment to get additional debug info over serial
 
 //pinouts
-uint8_t leftMotorSpeedPin = 4;
+uint8_t leftMotorSpeedPin = 7;
 uint8_t leftMotorBrakePin = 5;
 uint8_t leftMotorForwardPin = 22;
 uint8_t leftMotorReversePin = 23;
 uint8_t leftMotorInterlockPin = 24;
 
 uint8_t rightMotorSpeedPin = 6;
-uint8_t rightMotorBrakePin = 7;
+uint8_t rightMotorBrakePin = 8;
 uint8_t rightMotorForwardPin = 25;
 uint8_t rightMotorReversePin = 26;
 uint8_t rightMotorInterlockPin = 27;
@@ -75,7 +75,7 @@ static Encryption const cypher;
 ChaCha chacha;
 
 unsigned long prev_time;
-const long heartbeat_timeout = 200;		//heartbeat timer 150ms
+const long heartbeat_timeout = 250;		//heartbeat timer 
 int deadband = 5;						// joystick centered deadband
 int faultPrintTimer = 5000;				//error code serial print delay, ms
 int clearFaultTimer = 3000;				//error code serial print delay, ms

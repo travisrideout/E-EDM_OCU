@@ -8,8 +8,8 @@
 //TODO: esp8266 wifi serial bus for phone/laptop debug wirelessly
 //TODO: Scan for best channel on startup and tell controller radio to switch to that channel
 //TODO: Show connection, controller ID, inputs, battery voltage, etc.
-//TODO: setable max speeds
-//TODO: brakes?
+//TODO: brakes? Not needed in controller speed modes
+//TODO: blink led fault number during faults
 
 #include "Vehicle.h"
 
@@ -20,8 +20,14 @@ void setup() {
 	//Print header
 	Serial.println("HDT ROBOTICS");
 	Serial.println("E-EDM VEHICLE");
-	Serial.println("VERSION: 1.0");
+	Serial.println("VERSION: 1.2");
 	Serial.println(" ");
+
+	//set pwm frequency, 4khz on pins 6,7,8
+	int bitEraser = 7;
+	int scalar = 2;
+	TCCR4B &= ~bitEraser;
+	TCCR4B |= scalar;
 
 	//Set pin modes
 	pinMode(rightMotorSpeedPin, OUTPUT);
@@ -63,12 +69,7 @@ void setup() {
 	establishConnection();
 }
 
-// the loop function runs over and over again until power down or reset
-void loop() {
-	//read message
-	//parse message into outputs
-	//if no message within heartbeat timeout then set outputs to zero
-
+void loop() {	
 	if (radio.available()) {
 		while (radio.available()) {                          // While there is data ready
 			byte msg[sizeof(newValues)];
@@ -76,15 +77,15 @@ void loop() {
 			radio.read(&msgCrypt, sizeof(newValues));       // Get the payload			
 			
 			byte seed[8];
-			Serial.print("Decrypt seed = ");
+			//Serial.print("Decrypt seed = ");
 			for (uint8_t i = 0; i < 8; i++) {
 				seed[i] = msgCrypt[i];
-				Serial.print(seed[i]);
-				Serial.print(", ");
+				//Serial.print(seed[i]);
+				//Serial.print(", ");
 			}
-			Serial.println();
+			//Serial.println();
 			chacha.setIV(cypher.iv, chacha.ivSize());
-			if (!chacha.setCounter(seed, sizeof(fffseed))) {
+			if (!chacha.setCounter(seed, sizeof(seed))) {
 				Serial.println("Failed to set decrypt counter!");
 			}
 			chacha.decrypt(msg, msgCrypt, sizeof(msgCrypt));
@@ -219,12 +220,17 @@ void parseMessage() {
 
 	if (newValues.deadman) {
 		initializeData(newValues);
+		rightMotor.interlock = false;
+		leftMotor.interlock = false;
+	} else {
+		rightMotor.interlock = true;
+		leftMotor.interlock = true;
 	}
 
 	//map the joystick values to a -255 to 255 range outside of the deadband
 	//TODO: get rid of deadband as controller is calibrated
 	int mappedXAxis, mappedYAxis;
-	if (newValues.xAxis > 512 + deadband) {
+	if (newValues.xAxis > 512 + deadband) {		
 		mappedXAxis = map(newValues.xAxis, 512 + deadband, 1024, 0, 255);
 	} else if (newValues.xAxis < 511 - deadband) {
 		mappedXAxis = map(newValues.xAxis, 0, 512 - deadband, -255, 0);
@@ -317,6 +323,7 @@ void setFault(faultCodes code) {
 	fault_state = true;
 	faultCode = code;
 	initializeData(newValues);
+	initializeOutputs();
 	led.red = 125;
 	led.green = 0;
 	led.blue = 0;
