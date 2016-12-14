@@ -214,7 +214,16 @@ void parseMessage() {
 	//out of range checks
 
 	if (newValues.xAxis > 1023 || newValues.xAxis < 0 || newValues.yAxis > 1023 || newValues.yAxis < 0) {
-		setFault(Input_Out_Of_Range);
+		//setFault(Input_Out_Of_Range);
+		Serial.print("Input_Out_Of_Range Fault Detected: ");
+		Serial.print("xAxis = ");
+		Serial.print(newValues.xAxis);
+		Serial.print(", yAxis = ");
+		Serial.println(newValues.yAxis);
+
+		//trying this instead of set fault
+		initializeData(newValues);
+		initializeOutputs();
 		return;
 	}
 
