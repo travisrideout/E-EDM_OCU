@@ -9,26 +9,29 @@
 #define debug;	//uncomment to get additional debug info over serial
 
 //pinouts
-uint8_t leftMotorSpeedPin = 7;
-uint8_t leftMotorBrakePin = 5;
-uint8_t leftMotorForwardPin = 22;
-uint8_t leftMotorReversePin = 23;
-uint8_t leftMotorInterlockPin = 24;
+const uint8_t leftMotorSpeedPin = 7;
+const uint8_t leftMotorBrakePin = 5;
+const uint8_t leftMotorForwardPin = 22;
+const uint8_t leftMotorReversePin = 23;
+const uint8_t leftMotorInterlockPin = 24;
 
-uint8_t rightMotorSpeedPin = 6;
-uint8_t rightMotorBrakePin = 8;
-uint8_t rightMotorForwardPin = 25;
-uint8_t rightMotorReversePin = 26;
-uint8_t rightMotorInterlockPin = 27;
+const uint8_t rightMotorSpeedPin = 6;
+const uint8_t rightMotorBrakePin = 8;
+const uint8_t rightMotorForwardPin = 25;
+const uint8_t rightMotorReversePin = 26;
+const uint8_t rightMotorInterlockPin = 27;
 
-uint8_t clearFaultPin = 28;
+const uint8_t clearFaultPin = 28;
 
-uint8_t ledRedPin = 13;
-uint8_t ledGreenPin = 12;
-uint8_t ledBluePin = 11;
+const uint8_t ledBluePin = 11;
+const uint8_t ledGreenPin = 12;
+const uint8_t ledRedPin = 13;
 
-uint8_t cePin = 49;
-uint8_t csPin = 53;
+const uint8_t cePin = 49;
+const uint8_t miso = 50;
+const uint8_t mosi = 51;
+const uint8_t sck = 52;
+const uint8_t csPin = 53;
 
 struct dataStruct {
 	byte seed[8];
