@@ -26,23 +26,80 @@ const uint8_t miso = 14;
 const uint8_t deadmanPin = 15;
 const uint8_t vibePin = 16;
 
-struct dataStruct {
+typedef struct _nRF24Header {
 	byte seed[8];
-	//byte pairedID;
+	byte pairedID;
+	byte msgType;
+}nRF24Header;
+
+typedef struct _controlMsg {
+	byte seed[8];
+	byte pairedID;
+	byte msgType;
 	int xAxis;			//0-1023 based on arduino analog read
 	int yAxis;
 	bool button1;
 	bool button2;
 	bool deadman;
-	//byte ocuBatt;		//in percent of total 0-100
-}oldValues, newValues, heartbeat;
+	byte ocuBatt;		//in percent of total 0-100
+}controlMsg;
 
-struct joystick {
-	int center = 512;
-	int min = 0;
-	int max = 1023;
-	int deadband = 40;
-}xAxis, yAxis;
+controlMsg newValues;
+
+typedef struct _heartbeatMsg {
+	byte seed[8];
+	byte pairedID;
+	byte msgType;
+	unsigned long count;
+}heartbeatMsg;
+
+heartbeatMsg heartbeat = {};
+
+typedef struct _guiMsg {
+	byte seed[8];
+	byte pairedID;
+	byte msgType;
+	byte batteryLevel;
+	byte fuelLevel;
+	byte state;
+	int orient[3];
+	byte mode;
+	byte speed;
+	unsigned int mileage;
+	unsigned int hours;
+	byte accessories;
+}guiMsg;
+
+typedef struct _faultMsg {
+	byte seed[8];
+	byte pairedID;
+	byte msgType;
+	int faultCode;
+	byte faultSpecificData[8];
+}faultMsg;
+
+typedef union _nRF24Msg_union {
+	nRF24Header nRF24Header_struct;
+	controlMsg controlMsg_struct;
+	heartbeatMsg heartbeatMsg_struct;
+	guiMsg guiMsg_struct;
+	faultMsg faultMsg_struct;
+	uint8_t msg_bytes[32];
+}nRF24Msg_union;
+
+typedef struct _joystick {
+	int center; // = 450;
+	int min;	// = 0;
+	int max;	// = 920;
+	int deadband; // = 40;
+}joystick;
+
+joystick xAxis, yAxis;
+
+typedef union _joyConfig_union {
+	joystick joyConfig_struct;
+	uint8_t joyConfig_bytes[sizeof(joyConfig_struct)];
+}joyConfig_union;
 
 struct Encryption {
 	byte key[32] = { 0x66, 0x74, 0x7a, 0xc2, 0x11, 0x9a, 0x36, 0x03,
@@ -59,12 +116,14 @@ static Encryption const cypher;
 ChaCha chacha;
 
 //constants
-const int heartbeat_frequency = 100;		//frequency heartbeat, time in ms
+const int heartbeat_frequency = 1000;		//frequency heartbeat, time in ms
 const int message_frequency = 50;			//frequency messages are sent, time in ms
 const int vibe_frequency = 100;				//frequency vibe loop, time in ms
 const int calibrate_timeout = 3000;
-const int xJoyMemLoc = 0;
-const int yJoyMemLoc = xJoyMemLoc + sizeof(xAxis);
+const int joyCenterDefault = 450;
+const int joyMinDefault = 0;
+const int joyMaxDefault = 920;
+const int joyDeadbandDefault = 40;
 
 //working variables
 unsigned long prev_time;
@@ -72,6 +131,7 @@ unsigned long calibrate_time;
 unsigned long count = 0;
 bool calibrate = false;
 byte batt = 100;
+byte sendMsg[32];
 
 //Vibe interrupt variables
 int vibePulses = 0;

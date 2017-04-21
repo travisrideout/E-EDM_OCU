@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26403.0
+VisualStudioVersion = 15.0.26403.7
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Controller", "Controller\Controller.vcxproj", "{C5F80730-F44F-4478-BDAE-6634EFC2CA88}"
 EndProject
@@ -38,6 +38,12 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ReadWrite", "..\..\..\Arduino\My Examples\ReadWrite\ReadWrite.vcxproj", "{B7E26F09-A396-4A2A-A931-CA51CBB7E494}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "adc", "..\..\..\Arduino\My Examples\adc\adc.vcxproj", "{2B5C8F16-A1B2-483E-A656-D4BAAD543748}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BarometricPressureSensor", "..\..\..\Arduino\My Examples\BarometricPressureSensor\BarometricPressureSensor.vcxproj", "{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Test", "Test\Test.vcxproj", "{FEDDCF23-CBDC-47BC-BE17-EA43CD3E3C1A}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sensorapi", "..\..\..\Arduino\My Examples\sensorapi\sensorapi.vcxproj", "{85BACE57-B0A7-4973-ABED-21A797957336}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -101,6 +107,18 @@ Global
 		{2B5C8F16-A1B2-483E-A656-D4BAAD543748}.Debug|x86.Build.0 = Debug|Win32
 		{2B5C8F16-A1B2-483E-A656-D4BAAD543748}.Release|x86.ActiveCfg = Release|Win32
 		{2B5C8F16-A1B2-483E-A656-D4BAAD543748}.Release|x86.Build.0 = Release|Win32
+		{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC}.Debug|x86.ActiveCfg = Debug|Win32
+		{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC}.Debug|x86.Build.0 = Debug|Win32
+		{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC}.Release|x86.ActiveCfg = Release|Win32
+		{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC}.Release|x86.Build.0 = Release|Win32
+		{FEDDCF23-CBDC-47BC-BE17-EA43CD3E3C1A}.Debug|x86.ActiveCfg = Debug|Win32
+		{FEDDCF23-CBDC-47BC-BE17-EA43CD3E3C1A}.Debug|x86.Build.0 = Debug|Win32
+		{FEDDCF23-CBDC-47BC-BE17-EA43CD3E3C1A}.Release|x86.ActiveCfg = Release|Win32
+		{FEDDCF23-CBDC-47BC-BE17-EA43CD3E3C1A}.Release|x86.Build.0 = Release|Win32
+		{85BACE57-B0A7-4973-ABED-21A797957336}.Debug|x86.ActiveCfg = Debug|Win32
+		{85BACE57-B0A7-4973-ABED-21A797957336}.Debug|x86.Build.0 = Debug|Win32
+		{85BACE57-B0A7-4973-ABED-21A797957336}.Release|x86.ActiveCfg = Release|Win32
+		{85BACE57-B0A7-4973-ABED-21A797957336}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -120,5 +138,7 @@ Global
 		{663BBF1E-46CE-4960-84AF-0AA5FE0B0954} = {DAFF7B5B-F992-4240-A2C3-325CDF879207}
 		{B7E26F09-A396-4A2A-A931-CA51CBB7E494} = {835E8507-0886-4DBA-BAA1-9769DA3DD276}
 		{2B5C8F16-A1B2-483E-A656-D4BAAD543748} = {835E8507-0886-4DBA-BAA1-9769DA3DD276}
+		{A09732C4-5DAF-4A55-8113-FC9C16E6E1AC} = {1348DC88-909A-41E4-8F3A-BCB757ECEAA3}
+		{85BACE57-B0A7-4973-ABED-21A797957336} = {F6E130F0-05BD-4FAF-B355-A1383A2B5428}
 	EndGlobalSection
 EndGlobal

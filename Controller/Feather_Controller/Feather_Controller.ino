@@ -4,18 +4,16 @@
  Author:	Travis.rideout
 */
 
-//TODO: No EEPROM so need to initialize values somehow else. nffs?
 //TODO: add BLE for operator GUI
-//TODO: loop timing needs to be re thought for high CPU frequency
 //TODO: Implement rx from vehicle
-//TODO: Create heartbeat specific message
 //TODO: printf not working
 //TODO: create error handler
 
 //TODO: utilize sleep modes on no user interaction timeouts to save battery
 //TODO: Programatically set radio PAlevel based on signal strength/lossed packets
+//TODO: frequency hopping
+//TODO: Frequency scan on startup
 //TODO: measure battery voltage
-//TODO: Handshake with vehicle using ack and ID
 //TODO: Implement controller ID's to avoid multiple controller interference
 //TODO: Disallow deadman initialization with joystick not centered or buttons pressed
 
@@ -36,7 +34,7 @@ void setup() {
 	//Print header
 	Serial.println("HDT ROBOTICS");
 	Serial.println("E-EDM FEATHER CONTROLLER");
-	Serial.println("VERSION: 1.1");
+	Serial.println("VERSION: 0.1");
 	Serial.println(" ");
 
 	//Set pin modes
@@ -50,19 +48,17 @@ void setup() {
 	// Setup and configure rf radio
 	radio.begin();
 	radio.setPALevel(RF24_PA_MAX);
-	//radio.setAutoAck(1);                    // Ensure autoACK is enabled
-	//radio.enableAckPayload();               // Allow optional ack payloads
-	radio.setRetries(0, 15);                 // Smallest time between retries, max no. of retries
+	radio.setAutoAck(1);                    // Ensure autoACK is enabled
+	radio.enableAckPayload();               // Allow optional ack payloads
+	radio.setRetries(8, 10);                 // Smallest time between retries, max no. of retries
 	radio.openWritingPipe(pipes[0]);        // Both radios listen on the same pipes by default, and switch when writing
 	radio.openReadingPipe(1, pipes[1]);
 	radio.startListening();                 // Start listening
 	radio.printDetails();                   // Dump the configuration of the rf unit for debugging
 	Serial.println("Init Radio");
 
-	//initialize data
-	initializeData(oldValues);
+	//initialize data	
 	initializeData(newValues);
-	initializeData(heartbeat);
 	initializeJoysticks();
 
 	//initialize encryption
@@ -76,39 +72,58 @@ void setup() {
 
 	//selfCheck();
 	establishConnection();
-	getBatt();
+	getBatt();	
 }
 
 //realtime loop, not delayed
-void loop() {	
-	if (digitalRead(deadmanPin) && !digitalRead(button1Pin) && !digitalRead(button2Pin)) {
-		if (!calibrate) {
-			calibrate = true;
-			calibrate_time = millis();
-		}
-	} else {
-		calibrate = false;
-	}
-	if (calibrate && millis() - calibrate_time > calibrate_timeout) {
+void loop() {		
+	if (ocuCalibrateRequest()) {
 		calibrateJoystick();
 	}	
 
 	//All nRF24 calls should be from here to avoid overlap
 	if (millis() - prev_time > message_frequency && getInputs()) {
 		prev_time = millis();
-		generateSeed(newValues);
-		if (!sendData(newValues)) {
+		nRF24Msg_union send = {};
+		send.controlMsg_struct = newValues;
+		encryptMsg(&send);
+		if (!sendData(&send)) {
 			establishConnection();
 		}
 	} else if (millis() - prev_time > heartbeat_frequency) {
 		prev_time = millis();
 		Serial.print("sending heartbeat message: ");
-		Serial.println(count);
 		count++;
-		generateSeed(heartbeat);
-		if (!sendData(heartbeat)) {
+		Serial.println(count);		
+		nRF24Msg_union send = {};
+		send.heartbeatMsg_struct = heartbeat;
+		send.heartbeatMsg_struct.count = count;
+		send.heartbeatMsg_struct.msgType = 'H';
+		encryptMsg(&send);
+		if (!sendData(&send)) {
 			establishConnection();
+		} 		
+	}
+	//read ack messages
+	//TODO: sort and parse messages, shuttle to BT
+	while (radio.isAckPayloadAvailable()) {
+		nRF24Msg_union ackMsg = {};
+		radio.read(&ackMsg.msg_bytes, sizeof(ackMsg.msg_bytes));
+		Serial.print("Ack msg type is: ");
+		Serial.println((char)ackMsg.nRF24Header_struct.msgType);
+		/*Serial.print("Ack msg = ");
+		for (uint8_t i = 0; i < sizeof(ackMsg.msg_bytes); i++) {
+			Serial.print(ackMsg.msg_bytes[i]);
+			Serial.print(", ");
 		}
+		Serial.println();*/
+
+		Serial.print("pitch = ");
+		Serial.print((float)ackMsg.guiMsg_struct.orient[0]/100.0f);
+		Serial.print(", roll = ");
+		Serial.print((float)ackMsg.guiMsg_struct.orient[1]/100.0f);
+		Serial.print(", heading = ");
+		Serial.println((float)ackMsg.guiMsg_struct.orient[2] / 100.0f);
 	}
 }
 
@@ -134,87 +149,98 @@ void vibeTask() {
 	delay(vibe_frequency);
 }
 
+//Set a vibe command. Runs on interrupt timer1. All times in multiples of 100 ms
+void setVibe(int numPulses = 1, int pulseDuration = 1, int pulseDelay = 1) {
+	vibePulses = numPulses;
+	vibeDuration = pulseDuration;
+	vibeDurationCounter = pulseDuration;
+	vibeDelay = pulseDelay;
+	vibeDelayCounter = pulseDelay;
+}
+
 //initialize data struct to zero values
-void initializeData(dataStruct &data) {
-	//data.pairedID = 201
+void initializeData(controlMsg &data) {
+	data.pairedID = 201;
+	data.msgType = 'C';
 	data.xAxis = 512;
 	data.yAxis = 512;
 	data.button1 = true;
 	data.button2 = true;
 	data.deadman = true;
-	//data.ocuBatt = 100;
+	data.ocuBatt = 100;
 }
 
-
-void initializeJoysticks() {
-	//open config file, error if not found -> force calibrate, create config file there
-	
+//open config file, error if not found -> force calibrate, create config file there
+//Pull values from config file, validity check, initialize working variables
+void initializeJoysticks() {	
 	file.open(FILENAME, FS_ACCESS_READ);
 	if (file.exists()) {
 		Serial.println(FILENAME " file opened");
 
-		uint32_t readlen;
-		char buffer[42] = { 0 };
-		readlen = file.read(buffer, sizeof(buffer));
+		//create byte unions of joystick structs to write to
+		joyConfig_union x_union = {};
+		joyConfig_union y_union = {};
 
-		buffer[readlen] = 0;
-		Serial.println(buffer);
-		int xc, xmi, xma, xd, yc, ymi, yma, yd;
-
-		sscanf(buffer, "%d,%d,%d,%d,%d,%d,%d,%d", 
-			&xAxis.center, &xAxis.min, &xAxis.max, &xAxis.deadband, 
-			&yAxis.center, &yAxis.min, &yAxis.max, &yAxis.deadband);
-		
-		if (xc > 0 && xc < 1023) {
-			xAxis.center = xc;
+		//read from file and store in unions
+		file.read(x_union.joyConfig_bytes, sizeof(x_union.joyConfig_bytes));
+		file.read(y_union.joyConfig_bytes, sizeof(y_union.joyConfig_bytes));
+				
+		//validity check values and set 
+		if (x_union.joyConfig_struct.center > 0 && x_union.joyConfig_struct.center < 1023) {
+			xAxis.center = x_union.joyConfig_struct.center;
 		} else {
 			//error
 		}
-		if (xmi > 0 && xmi < 1023) {
-			xAxis.min = xmi;
+		if (x_union.joyConfig_struct.min > 0 && x_union.joyConfig_struct.min < 1023) {
+			xAxis.min = x_union.joyConfig_struct.min;
 		} else {
 			//error
 		}
-		if (xma > 0 && xma < 1023) {
-			xAxis.max = xma;
+		if (x_union.joyConfig_struct.max > 0 && x_union.joyConfig_struct.max < 1023) {
+			xAxis.max = x_union.joyConfig_struct.max;
 		} else {
 			//error
 		}
-		if (xcd > 0 && xd < 1023) {
-			xAxis.deadband = xd;
+		if (x_union.joyConfig_struct.deadband > 0 && x_union.joyConfig_struct.deadband < 1023) {
+			xAxis.deadband = x_union.joyConfig_struct.deadband;
 		} else {
 			//error
 		}
-		if (yc > 0 && yc < 1023) {
-			yAxis.center = yc;
+		if (y_union.joyConfig_struct.center > 0 && y_union.joyConfig_struct.center < 1023) {
+			yAxis.center = y_union.joyConfig_struct.center;
 		} else {
 			//error
 		}
-		if (ymi > 0 && ymi < 1023) {
-			yAxis.min = ymi;
+		if (y_union.joyConfig_struct.min > 0 && y_union.joyConfig_struct.min < 1023) {
+			yAxis.min = y_union.joyConfig_struct.min;
 		} else {
 			//error
 		}
-		if (yma > 0 && yma < 1023) {
-			yAxis.max = yma;
+		if (y_union.joyConfig_struct.max > 0 && y_union.joyConfig_struct.max < 1023) {
+			yAxis.max = y_union.joyConfig_struct.max;
 		} else {
 			//error
 		}
-		if (ycd > 0 && yd < 1023) {
-			yAxis.deadband = yd;
+		if (y_union.joyConfig_struct.deadband > 0 && y_union.joyConfig_struct.deadband < 1023) {
+			yAxis.deadband = y_union.joyConfig_struct.deadband;
 		} else {
 			//error
 		}
-
-	} else {
+	} else  {
+		//no config file was found so creating a new one with default values
 		Serial.print("Open " FILENAME " file to write ... ");
 
 		if (file.open(FILENAME, FS_ACCESS_WRITE)) {
 			Serial.println("OK");
-			char initialValues[42] = "0450,0000,0920,0040,0450,0000,0920,0040,";
-			file.write(initialValues, strlen(initialValues));
-			file.close();
+			joyConfig_union x_union = { joyCenterDefault,joyMinDefault,joyMaxDefault,joyDeadbandDefault };
+			xAxis = x_union.joyConfig_struct;
+			joyConfig_union y_union = { joyCenterDefault,joyMinDefault,joyMaxDefault,joyDeadbandDefault };
+			yAxis = y_union.joyConfig_struct;
+			file.write(x_union.joyConfig_bytes, sizeof(x_union.joyConfig_bytes));
+			file.write(y_union.joyConfig_bytes, sizeof(y_union.joyConfig_bytes));
+			file.close();			
 		} else {
+			//failed to create file
 			Serial.println("Failed (hint: path must start with '/') ");
 			Serial.print("errnum = ");
 			Serial.println(file.errnum);
@@ -224,14 +250,14 @@ void initializeJoysticks() {
 }
 
 //Two step process to get center/min/max values of joystick range
-calibrateJoystick() {
+void calibrateJoystick() {
 	Serial.println("JOYSTICK CALIBRATION STARTED");
 	Serial.println("Leave Joystick Centered");
 	setVibe(1, 5);
 	xAxis.center = analogRead(xAxisPin);
 	yAxis.center = analogRead(yAxisPin);
-	xAxis.deadband = 40;
-	yAxis.deadband = 40;
+	xAxis.deadband = joyDeadbandDefault;
+	yAxis.deadband = joyDeadbandDefault;
 	delay(2000);
 	Serial.println("Circle Joystick");
 	setVibe(2, 5, 5);
@@ -255,25 +281,30 @@ calibrateJoystick() {
 			yAxis.max = ypos;
 		}
 		printJoystickCalibration();
+	}	
+
+	Serial.print("Open " FILENAME " file to write ... ");
+
+	if (file.open(FILENAME, FS_ACCESS_WRITE)) {
+		Serial.println("OK");
+		//create byte unions of joystick structs to write to
+		joyConfig_union x_union = {};
+		joyConfig_union y_union = {};
+
+		x_union.joyConfig_struct = xAxis;
+		y_union.joyConfig_struct = yAxis;
+
+		file.write(x_union.joyConfig_bytes, sizeof(x_union.joyConfig_bytes));
+		file.write(y_union.joyConfig_bytes, sizeof(y_union.joyConfig_bytes));
+		file.close();
 	}
-
-	//TODO: need leading 0's to get exactly 4bytes per number
-	//Store values to config file
-	String string1 = String(xAxis.center) + ",";
-	String string2 = String(xAxis.min) + ",";
-	String string3 = String(xAxis.max) + ",";
-	String string4 = String(xAxis.deadband) + ",";
-	String string5 = String(yAxis.center) + ",";
-	String string6 = String(yAxis.min) + ",";
-	String string7 = String(yAxis.max) + ",";
-	String string8 = String(yAxis.deadband) + ",";
-
-	String buf = string1 + string2 + string3 + string4 + string5 + string6
-		+ string7 + string8;
-	char config[42];	//adjust pubsub to accept messages of this length
-	buf.toCharArray(config, sizeof(config));
-	Serial.println(config);
-		
+	else {
+		//failed to create file
+		Serial.println("Failed (hint: path must start with '/') ");
+		Serial.print("errnum = ");
+		Serial.println(file.errnum);
+	}
+			
 	setVibe(3, 5, 5);
 	Serial.println();
 	Serial.println("JOYSTICK CALIBRATION COMPLETE");
@@ -306,8 +337,6 @@ void printJoystickCalibration() {
 //if deadman is pressed read values, else reset all values
 bool getInputs() {
 	if (!digitalRead(deadmanPin)) {
-		//shuffle values back into history
-		shuffleValues(oldValues, newValues);
 		//read new values
 		newValues.deadman = digitalRead(deadmanPin);
 		newValues.button1 = digitalRead(button1Pin);
@@ -319,8 +348,7 @@ bool getInputs() {
 		printValues();
 #endif // DEBUG
 		return true;
-	} else {
-		shuffleValues(oldValues, newValues);
+	} else {		
 		initializeData(newValues);
 		//newValues.ocuBatt = batt;
 		return false;
@@ -375,49 +403,68 @@ int scaleAxis(joystick joy, int val) {
 	}
 }
 
-void shuffleValues(dataStruct &oldData, dataStruct &newData) {
-	oldData.deadman = newData.deadman;
-	oldData.button1 = newData.button1;
-	oldData.button2 = newData.button2;
-	oldData.xAxis = newData.xAxis;
-	oldData.yAxis = newData.yAxis;
-}
-
-bool compareValues(dataStruct &oldData, dataStruct &newData) {
-	if (oldData.button1 != newData.button1 || oldData.button2 != newData.button2
-		|| oldData.xAxis != newData.xAxis || oldData.yAxis != newData.yAxis) {
-		return true;
-	} else {
-		return false;
-	}
-}
-
-void generateSeed(dataStruct &data) {
+void encryptMsg(nRF24Msg_union *_msg) {
 	randomSeed(millis());
-	for (uint8_t i = 0; i < 8; i++) {
-		data.seed[i] = (byte)random(0, 255);
-	}
-}
-
-bool sendData(dataStruct &data) {
-	byte msg[sizeof(data)];
-	byte msgCrypt[sizeof(data)];
-	memcpy(msg, &data, sizeof(data));
-	chacha.setIV(cypher.iv, chacha.ivSize());
-	if (!chacha.setCounter(data.seed, sizeof(data.seed))) {
-		Serial.println("Failed to set counter!");
-	}
-	chacha.encrypt(msgCrypt, msg, sizeof(msg));
 	//Serial.print("Encrypt seed = ");
 	for (uint8_t i = 0; i < 8; i++) {
-		msgCrypt[i] = data.seed[i];
+		_msg->controlMsg_struct.seed[i] = (byte)random(0, 255);
+		//Serial.print(_msg->controlMsg_struct.seed[i]);
+		//Serial.print(", ");
+	}
+
+	/*Serial.print("Unencrypted msg = ");
+	for (uint8_t i = 0; i < sizeof(_msg->sendMsg_bytes); i++) {
+		Serial.print(_msg->sendMsg_bytes[i]);
+		Serial.print(", ");
+	}
+	Serial.println();*/
+
+	//Serial.println();
+	byte msgCrypt[32];
+	chacha.setIV(cypher.iv, chacha.ivSize());
+	if (!chacha.setCounter(_msg->controlMsg_struct.seed, sizeof(_msg->controlMsg_struct.seed))) {
+		Serial.println("Failed to set counter!");
+	}
+	chacha.encrypt(msgCrypt, _msg->msg_bytes, sizeof(_msg->msg_bytes));
+	//Serial.print("Post Encrypt seed = ");
+	for (uint8_t i = 0; i < 8; i++) {
+		msgCrypt[i] = _msg->controlMsg_struct.seed[i];
 		//Serial.print(msgCrypt[i]);
 		//Serial.print(", ");
 	}
 	//Serial.println();
+	//copy encrypted data back into union
+	memcpy(_msg->msg_bytes, msgCrypt, sizeof(_msg->msg_bytes));	
+}
+
+bool sendData(nRF24Msg_union *_msg) {	
+
+	//check encryption seed for debugging
+	/*Serial.print("Pre send seed = ");
+	for (uint8_t i = 0; i < 8; i++) {
+		Serial.print(_msg->heartbeatMsg_struct.seed[i]);
+		Serial.print(", ");
+	}
+	Serial.println();
+
+	Serial.print("Encrypted msg = ");
+	for (uint8_t i = 0; i < sizeof(_msg->sendMsg_bytes); i++) {
+		Serial.print(_msg->sendMsg_bytes[i]);
+		Serial.print(", ");
+	}
+	Serial.println();*/
+
+	//Serial.print("Message type is = ");
+	//Serial.println((char)_msg->heartbeatMsg_struct.msgType);
+
+	//Serial.println();
 	radio.stopListening();
-	if (!radio.write(&msgCrypt, sizeof(msgCrypt))) {
+	if (!radio.write(&_msg->msg_bytes, sizeof(_msg->msg_bytes))) {
 		Serial.println("Failed to send message");
+		if (radio.failureDetected) {
+			Serial.print("radio hardware failure detected: ");
+			//Serial.print(radio.get_status());
+		}
 		return false;
 	}
 	//implement ack messages here
@@ -433,23 +480,24 @@ bool sendData(dataStruct &data) {
 	return true;
 }
 
-//Set a vibe command. Runs on interrupt timer1. All times in multiples of 100 ms
-void setVibe(int numPulses = 1, int pulseDuration = 1, int pulseDelay = 1) {
-	vibePulses = numPulses;
-	vibeDuration = pulseDuration;
-	vibeDurationCounter = pulseDuration;
-	vibeDelay = pulseDelay;
-	vibeDelayCounter = pulseDelay;
-}
-
 //Checks for connection every 3sec
 //Single short vibe while no connection
 //Long vibe once connection is made
 bool establishConnection() {
 	Serial.println("Waiting for connection");
 	int count = 0;
-	generateSeed(heartbeat);
-	while (!sendData(heartbeat)) {
+	nRF24Msg_union send = {};
+	send.heartbeatMsg_struct = heartbeat;
+	encryptMsg(&send);
+
+	/*Serial.print("Pre send seed = ");
+	for (uint8_t i = 0; i < 8; i++) {
+		Serial.print(send.heartbeatMsg_struct.seed[i]);
+		Serial.print(", ");
+	}
+	Serial.println();*/
+
+	while (!sendData(&send)) {
 		if (count < 20) {
 			Serial.print(".");
 			count++;
@@ -458,7 +506,15 @@ bool establishConnection() {
 			Serial.println("!");
 		}
 		setVibe();
-		generateSeed(heartbeat);
+		encryptMsg(&send);
+
+		/*Serial.print("Pre send seed = ");
+		for (uint8_t i = 0; i < 8; i++) {
+			Serial.print(send.heartbeatMsg_struct.seed[i]);
+			Serial.print(", ");
+		}
+		Serial.println();*/
+
 		delay(3000);
 	}
 	Serial.println(" ");
@@ -466,6 +522,21 @@ bool establishConnection() {
 	setVibe(1, 5);
 
 	return true;
+}
+
+bool ocuCalibrateRequest() {
+	if (digitalRead(deadmanPin) && !digitalRead(button1Pin) && !digitalRead(button2Pin)) {
+		if (!calibrate) {
+			calibrate = true;
+			calibrate_time = millis();
+		}
+	} else {
+		calibrate = false;
+	}
+	if (calibrate && millis() - calibrate_time > calibrate_timeout) {
+		return true;
+	}
+	return false;
 }
 
 //Check that the joystick is within centered range and no buttons are shorted
@@ -496,8 +567,9 @@ bool selfCheck() {
 		while (1) {
 			Serial.println("Controller Failed Self-check");
 			Serial.println("Restart or Try Calibrating Joystick");
-			setVibe(3, 2, 2);
-			if (calibrateJoystick()) {
+			setVibe(3, 2, 2);			
+			if (ocuCalibrateRequest()) {
+				calibrateJoystick();
 				if (selfCheck()) {
 					return true;
 				}
@@ -506,8 +578,6 @@ bool selfCheck() {
 		}
 	}
 }
-
-
 
 void printValues() {
 	Serial.print(newValues.xAxis);
