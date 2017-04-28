@@ -74,6 +74,6 @@ typedef void *__builtin_va_list;
 #define pgm_read_float(address_short) void()
 #define pgm_read_ptr(address_short)   void()
 
-#include "Controller.ino"
+#include "WOLF.ino"
 #endif
 #endif

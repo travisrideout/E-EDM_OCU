@@ -7,16 +7,16 @@
 //TODO: Scan for best channel on startup and tell controller radio to switch to that channel
 //TODO: implement ID pairing check
 //TODO: CAN Bus
+//TODO: AHRS calibration status in coms
 
 #include "Teensy_Vehicle_Controller.h"
 
 void setup() {
 	Serial.begin(115200);
-	printf_begin();
 
 	//Print header
 	Serial.println("HDT ROBOTICS");
-	Serial.println("SMET RADIO CAN TRANSLATOR");
+	Serial.println("WOLF RADIO CAN TRANSLATOR");
 	Serial.println("VERSION: 0.1");
 	Serial.println();
 	
@@ -26,16 +26,8 @@ void setup() {
 	pinMode(ledBluePin, OUTPUT);
 	//pinMode(clearFaultPin, INPUT_PULLUP);
 
-	// Setup and configure rf radio
-	radio.begin();
-	radio.setPALevel(RF24_PA_MIN);
-	radio.setAutoAck(1);                    // Ensure autoACK is enabled
-	radio.enableAckPayload();               // Allow optional ack payloads
-	radio.setRetries(8, 10);                 // Smallest time between retries, max no. of retries
-	radio.openWritingPipe(pipes[1]);        // Both radios listen on the same pipes by default, and switch when writing
-	radio.openReadingPipe(1, pipes[0]);
-	radio.startListening();                 // Start listening
-	radio.printDetails();                   // Dump the configuration of the rf unit for debugging
+	coms.begin();
+	can.begin();
 
 	// Initialise AHRS sensor
 	if (!bno.begin()) {
@@ -50,69 +42,53 @@ void setup() {
 	//initialize data
 	initializenRF24Messages();
 	initializeOutputs();
-
-	//initialize encryption
-	chacha.setNumRounds(cypher.rounds);
-	chacha.setKey(cypher.key, cypher.keySize);
-	chacha.setIV(cypher.iv, chacha.ivSize());
-
+		
 	prev_time = millis();
-	establishConnection();
+
+	bool ledBlinkState = false;
+	unsigned long localtime = millis();
+	int blinkrate = 1000;
+
+	coms.flushRXBuffer();
+	while (!coms.establishConnectionRX()) {
+		if (millis() - localtime > blinkrate) {
+			localtime = millis();
+			ledBlinkState = !ledBlinkState;
+			if (ledBlinkState) {
+				led.blue = 125;
+			} else {
+				led.blue = 0;
+			}
+			analogWrite(ledBluePin, led.blue);
+		}		
+		delay(100);
+		/*if (millis() - startTime > 60000) {
+		Serial.println(" ");
+		Serial.println("Unable to Establish a Connection");
+		setFault(Unable_To_Establish_Connection);
+		return false;
+		}*/
+	}
+	led.blue = 0;
+	led.green = 125;
+	analogWrite(ledBluePin, led.blue);
+	analogWrite(ledGreenPin, led.green);
 }
 
 void loop() {
-	if (radio.available()) {
-		byte pipeNo;
-		while (radio.available(&pipeNo)) {
-			//decide what payload to put in ack 
-			if (1) {
-				nRF24Msg_union ackMsg = {};
-				ackMsg.guiMsg_struct = gui;
-				readAHRS();
-				Serial.println("sending Ack Packet");
-				//store next ack payload to go out when a msg read occurs
-				radio.writeAckPayload(pipeNo, &ackMsg.msg_bytes, sizeof(ackMsg.msg_bytes));
-			}
-			
-			nRF24Msg_union msg = {};
-						
-			byte msgCrypt[sizeof(msg)];	
-			radio.read(&msgCrypt, sizeof(msg));      // Get the payload	
-			
-			/*Serial.print("encrypted msg = ");
-			for (uint8_t i = 0; i < sizeof(msg); i++) {
-				Serial.print(msgCrypt[i]);
-				Serial.print(", ");
-			}
-			Serial.println();*/
+	WOLF_COMS::nRF24Msg_union rxMsg = {};
+	byte pipe = 0;
+	if (coms.receiveMessage(&rxMsg, &pipe)) {
+		WOLF_COMS::nRF24Msg_union ackMsg = {};
+		ackMsg.guiMsg_struct = gui;
+		readAHRS();
+		Serial.println("sending Ack Packet");
+		coms.writeAckMessage(&ackMsg, pipe);
 
-			byte seed[8];
+		parseMessage(&rxMsg);
 
-			//Serial.print("Decrypt seed = ");
-			for (uint8_t i = 0; i < 8; i++) {
-				seed[i] = msgCrypt[i];
-				//Serial.print(seed[i]);
-				//Serial.print(", ");
-			}
-			//Serial.println();
-
-			chacha.setIV(cypher.iv, chacha.ivSize());
-			if (!chacha.setCounter(seed, sizeof(seed))) {
-				Serial.println("Failed to set decrypt counter!");
-			}
-			chacha.decrypt(msg.msg_bytes, msgCrypt, sizeof(msgCrypt));
-
-			/*Serial.print("msg = ");
-			for (uint8_t i = 0; i < sizeof(msg); i++) {
-				Serial.print(msg.msg_bytes[i]);
-				Serial.print(", ");
-			}
-			Serial.println();*/
-
-			parseMessage(&msg);
-		}
 		if (fault_state && faultCode == Loss_Of_Signal) {
-			if (establishConnection()) {
+			if (coms.establishConnectionRX()) {
 				Serial.println("Connection Re-Established - Fault Self Cleared");
 				clearFault();
 			}
@@ -122,8 +98,7 @@ void loop() {
 			setOutputs();
 		}
 		prev_time = millis();
-	}
-	else if (millis() - prev_time > heartbeat_timeout && !fault_state) {
+	} else if (millis() - prev_time > heartbeat_timeout && !fault_state) {
 		prev_time = millis();
 		setFault(Loss_Of_Signal);
 	}
@@ -190,58 +165,9 @@ void initializeOutputs() {
 	setOutputs();
 }
 
-//checks for connection every 3sec
-bool establishConnection() {
-	Serial.println("Waiting for connection");
-	long startTime = millis();
-	int count = 0;
-	bool ledBlinkState = false;
-	int blinkrate = 1000;
-	long localtime = millis();
-	//flush rx buffer first
-	if (radio.available()) {
-		controlMsg buf;
-		radio.read(&buf, sizeof(buf));
-		Serial.println("Flushing buffer");
-	}
-	while (!radio.available()) {
-		if (millis() - localtime > blinkrate) {
-			localtime = millis();
-			if (count < 20) {
-				Serial.print(".");
-				count++;
-			}
-			else {
-				count = 0;
-				Serial.println("!");
-			}
-			ledBlinkState = !ledBlinkState;
-			if (ledBlinkState) {
-				led.blue = 125;
-			}
-			else {
-				led.blue = 0;
-			}
-		}
-		/*if (millis() - startTime > 60000) {
-			Serial.println(" ");
-			Serial.println("Unable to Establish a Connection");
-			setFault(Unable_To_Establish_Connection);
-			return false;
-		}*/
-		analogWrite(ledBluePin, led.blue);
-		delay(50);
-	}
-	Serial.println(" ");
-	Serial.println("Connection Established");
-	led.blue = 0;
-	led.green = 125;
-	analogWrite(ledBluePin, led.blue);
-	analogWrite(ledGreenPin, led.green);
-	return true;
-}
 
-void parseMessage(nRF24Msg_union *msg) {
+
+void parseMessage(WOLF_COMS::nRF24Msg_union *msg) {
 	Serial.print("Message Type is: ");
 	Serial.println((char)msg->heartbeatMsg_struct.msgType);
 
@@ -253,7 +179,13 @@ void parseMessage(nRF24Msg_union *msg) {
 	case 'C':
 		//data validity check?
 		//pass to CAN bus
-		Serial.println("Control message recieved: ");
+		can.nRFCANMsg(*msg);
+		Serial.print("Control message recieved: ");
+		for (uint8_t i = 0; i < sizeof(msg->msg_bytes); i++) {
+			Serial.print(msg->msg_bytes[i]);
+			Serial.print(", ");
+		}
+		Serial.println();
 		//print controls message data for debug
 		break;
 	case 'U':
@@ -330,7 +262,7 @@ void clearFault() {
 	led.green = 0;
 	led.blue = 0;
 	setOutputs();
-	establishConnection();
+	coms.establishConnectionRX();
 }
 
 void readAHRS() {

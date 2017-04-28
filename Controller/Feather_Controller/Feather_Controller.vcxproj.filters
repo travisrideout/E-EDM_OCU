@@ -24,5 +24,19 @@
     <ClInclude Include="Feather_Controller.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\WOLF\WOLF_COMS.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OCU.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\WOLF\WOLF_COMS.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OCU.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
