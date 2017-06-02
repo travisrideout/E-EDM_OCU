@@ -1,22 +1,23 @@
 #ifndef WOLF_COMS_h
 #define WOLF_COMS_h
 
+#include <RHReliableDatagram.h>
+#include <RH_RF95.h>
 #include <SPI.h>
-#include <nRF24L01.h>
-#include <RF24.h>
 #include <Crypto.h>
 #include <ChaCha.h>
 
 class WOLF_COMS {
 public:
 	bool extraDebug = false;
-
-	//message type id's
-	static const char control = 'C';
-	static const char fault = 'F';
+	
+	//CAN message type id's
+	static const char control = 'C';	
 	static const char heartbeat = 'H';
 	static const char gui = 'G';
+	static const char fault = 'F';
 	static const char userFeedback = 'U';
+	static const char imu = 'I';
 
 	typedef struct _nRF24Header {
 		byte seed[8];
@@ -34,13 +35,14 @@ public:
 		byte button2;
 		byte deadman;
 		byte ocuBatt;		//in percent of total 0-100
+		char ocuRSSI;
 	}controlMsg;
 
 	typedef struct _heartbeatMsg {
 		byte seed[8];
 		byte pairedID;
 		byte msgType;
-		unsigned long count;
+		uint32_t count;
 	}heartbeatMsg;
 
 	typedef struct _guiMsg {
@@ -50,21 +52,32 @@ public:
 		byte batteryLevel;
 		byte fuelLevel;
 		byte state;
-		int16_t orient[3];
+		int16_t orient[3];	//[0] = y, [1] = z, [2] = x
+		byte imuStatus;
 		byte mode;
 		byte speed;
-		unsigned int mileage;
-		unsigned int hours;
+		uint32_t mileage;
+		uint32_t hours;
 		byte accessories;
+		char vehicleRSSI;
 	}guiMsg;
 
 	typedef struct _faultMsg {
 		byte seed[8];
 		byte pairedID;
 		byte msgType;
-		int16_t faultCode;
-		byte faultSpecificData[8];
+		uint16_t faultCode;
+		byte faultSpecificData[6];
 	}faultMsg;
+
+	typedef struct _userFeedbackMsg {
+		byte seed[8];
+		byte pairedID;
+		byte msgType;
+		byte modeReq;
+		byte request;
+		byte accessories;
+	}userFeedbackMsg;
 
 	typedef union _nRF24Msg_union {
 		nRF24Header nRF24Header_struct;
@@ -72,24 +85,20 @@ public:
 		heartbeatMsg heartbeatMsg_struct;
 		guiMsg guiMsg_struct;
 		faultMsg faultMsg_struct;
+		userFeedbackMsg userFeedbackMsg_struct;
 		uint8_t msg_bytes[32];
-	}nRF24Msg_union;	
+	}RFMsg_union;	
 	
 	//Prototypes
-	WOLF_COMS(uint8_t cePin, uint8_t csPin, bool primaryRadio = true, bool _extraDebug = false); 
+	WOLF_COMS(uint8_t csPin, uint8_t intPin, uint8_t resetPin, uint8_t address, bool _extraDebug = false);
 	void begin();
-	bool sendMessage(nRF24Msg_union *_msg);
-	bool receiveMessage(nRF24Msg_union *_msg, byte *ackPipe);
-	void writeAckMessage(nRF24Msg_union *_msg, byte ackPipe);
-	bool receiveAckMessage(nRF24Msg_union *_msg);
-	bool establishConnectionTX(nRF24Msg_union *_msg);
-	bool establishConnectionRX();
-	void flushRXBuffer();
-	void flushTXBuffer();
+	bool sendMessage(RFMsg_union *_msg, uint8_t address);
+	bool receiveMessage(RFMsg_union *_msg, byte *ackAddress);
+	bool receiveAckMessage(RFMsg_union *_msg, byte *ackAddress);
+	void printMessage(RFMsg_union *msg);
 	~WOLF_COMS();
 
 private:
-	bool primary = false;
 	int count = 0;
 
 	//Encryption objects
@@ -105,14 +114,17 @@ private:
 	static const Encryption cypher;
 	ChaCha chacha;
 
-	RF24 _radio;
-	const uint64_t pipes[2] = { 0xABCDABCD71LL, 0x544d52687CLL };
+	RH_RF95 driver;
+	RHReliableDatagram manager;
+	const double RF95_FREQ = 915.0;
+	uint8_t rstPin;
+	const uint8_t retryTimeout = 25;		//time between retries in ms	
+	const uint8_t retries = 2;			//number of retries before failure
+	const uint8_t ackTimeout = retryTimeout * retries + 5;		//time to wait for ack response in ms
 
 	//Prototypes
-	void printMsg(nRF24Msg_union *_msg);
-	void encryptMsg(nRF24Msg_union *_msg);
-	void decryptMsg(nRF24Msg_union *_msg);
-
+	void encryptMsg(RFMsg_union *_msg);
+	void decryptMsg(RFMsg_union *_msg);
 };
 
 #endif //WOLF_COMS.h

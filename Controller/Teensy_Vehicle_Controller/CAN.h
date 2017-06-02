@@ -3,16 +3,17 @@
 
 #include <FlexCAN.h>
 #include "WOLF_COMS.h"
+#include "IMU.h"
 
 class CAN {
 public:
-
 	CAN(uint k_baud);
 	void begin();
-	bool nRFCANMsg(WOLF_COMS::nRF24Msg_union msg);
+	bool RFCANMsg(WOLF_COMS::RFMsg_union msg);
+	void imuCANMsg(IMU::imuUnion data);
+	bool vehicleCANMSg();
 	~CAN();
 private:
-	byte headerOffset = 10;	//offset by header frame size
 	FlexCAN CANbus;
 	CAN_message_t canTXmsg;
 };

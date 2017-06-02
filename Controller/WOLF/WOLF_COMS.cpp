@@ -1,138 +1,90 @@
 #include "WOLF_COMS.h"
 
 //TODO: Programatically set radio PAlevel based on signal strength/lossed packets
-//TODO: frequency hopping
-//TODO: Frequency scan on startup
 //TODO: Implement controller ID's to avoid multiple controller interference
 
 WOLF_COMS::Encryption const WOLF_COMS::cypher;
 
-//cePin, csPin, primary Radio?, extra debug info
-WOLF_COMS::WOLF_COMS(uint8_t _cePin, uint8_t _csPin, bool primaryRadio, bool _extraDebug)
-	:  _radio(_cePin, _csPin), primary(primaryRadio), extraDebug(_extraDebug){ 
-
-	//initialize encryption
-	chacha.setNumRounds(cypher.rounds);
-	chacha.setKey(cypher.key, cypher.keySize);
-	chacha.setIV(cypher.iv, chacha.ivSize());		
+WOLF_COMS::WOLF_COMS(uint8_t _csPin, uint8_t _intPin, uint8_t _resetPin, uint8_t address, bool _extraDebug)
+	: driver(_csPin, _intPin), manager(driver, address), rstPin(_resetPin), extraDebug(_extraDebug) {
 }
 
 void WOLF_COMS::begin() {
-	_radio.begin();
-	_radio.setPALevel(RF24_PA_MAX);
-	_radio.setAutoAck(1);                    // Ensure autoACK is enabled
-	_radio.enableAckPayload();               // Allow optional ack payloads
-	_radio.setRetries(8, 10);                 // Smallest time between retries, max no. of retries
-	
-	if (primary) {
-		_radio.openWritingPipe(pipes[0]);        // Both radios listen on the same pipes by default, and switch when writing
-		_radio.openReadingPipe(1, pipes[1]);
-	} else {
-		_radio.openWritingPipe(pipes[1]);        // Both radios listen on the same pipes by default, and switch when writing
-		_radio.openReadingPipe(1, pipes[0]);
-	}	
-	_radio.startListening();                 // Start listening
-	_radio.printDetails();                   // Dump the configuration of the rf unit for debugging
+	//initialize encryption
+	chacha.setNumRounds(cypher.rounds);
+	chacha.setKey(cypher.key, cypher.keySize);
+	chacha.setIV(cypher.iv, chacha.ivSize());
+
+	pinMode(rstPin, INPUT);	//rst is an output on rfm95
+
+	//Manual reset of radio
+	Serial.println("Reset Radio");
+	pinMode(rstPin, OUTPUT);
+	digitalWrite(rstPin, LOW);
+	delayMicroseconds(100);
+	pinMode(rstPin, INPUT);
+	delay(10);	
+
+	//start and configure radio modem manager
+	if (!manager.init()) {
+		Serial.println("RFM95 init failed");
+	}
+	manager.setTimeout(retryTimeout);
+	manager.setRetries(retries);
+
+	//configure radio driver
+	driver.setTxPower(23, false);	//max power
+	if (!driver.setFrequency(RF95_FREQ)) {
+		Serial.println("setFrequency failed");
+	}
+	Serial.print("Set Freq to: "); 
+	Serial.println(RF95_FREQ);
+	driver.setModemConfig(driver.Bw500Cr45Sf128);
+	delay(20);
 
 	Serial.println("WOLF_COMS object initialization");
 }
 
-bool WOLF_COMS::sendMessage(nRF24Msg_union *_msg) {
+bool WOLF_COMS::sendMessage(RFMsg_union *_msg, uint8_t address) {
 	encryptMsg(_msg);
-	_radio.stopListening();
-	if (!_radio.write(&_msg->msg_bytes, sizeof(_msg->msg_bytes))) {
-		Serial.println("Failed to send message");
-		if (_radio.failureDetected) {
-			Serial.print("radio hardware failure detected: ");
-		}
+	if (!manager.sendtoWait(_msg->msg_bytes, sizeof(_msg->msg_bytes), address)) {
+		Serial.println("sendtoWait failed");
 		return false;
-	}
+	} 
 	return true;
 }
 
-//TODO: return pipNo
-bool WOLF_COMS::receiveMessage(nRF24Msg_union *_msg, byte *ackPipe) {
-	if (_radio.available(ackPipe)) {
-		_radio.read(_msg->msg_bytes, sizeof(_msg->msg_bytes));      // Get the payload
-		decryptMsg(_msg);
-		return true;
+//checks is message is available and gets it if there is one
+bool WOLF_COMS::receiveMessage(RFMsg_union *_msg, byte *ackAddress) {
+	if (manager.available()) {
+		uint8_t len = sizeof(_msg->msg_bytes);		
+		if (manager.recvfromAck(_msg->msg_bytes, &len, ackAddress)) {
+			decryptMsg(_msg);
+			return true;
+		}
 	}
 	return false;
 }
 
-//store next ack payload to go out when a msg read occurs
-//Flush TX buffer before calling this to avoid overflow
-//TX buffer is only 3 messages deep
-void WOLF_COMS::writeAckMessage(nRF24Msg_union *_msg, byte ackPipe) {		
-	_radio.writeAckPayload(ackPipe, _msg->msg_bytes, sizeof(_msg->msg_bytes));	
+//Waits for an ack message, blocks for ackTimeout
+bool WOLF_COMS::receiveAckMessage(RFMsg_union *_msg, byte *ackAddress) {
+	uint8_t len = sizeof(_msg->msg_bytes);
+	if (manager.recvfromAckTimeout(_msg->msg_bytes, &len, ackTimeout, ackAddress)) {
+		decryptMsg(_msg);
+		return true;
+	} 
+	return false;
 }
 
-bool WOLF_COMS::receiveAckMessage(nRF24Msg_union *_msg) {
-	bool messageAvailable = false;
-	while (_radio.isAckPayloadAvailable()) {
-		messageAvailable = true;
-		_radio.read(&_msg->msg_bytes, sizeof(_msg->msg_bytes));
-		if (extraDebug) {
-			Serial.print("Ack msg type is: ");
-			Serial.println((char)_msg->nRF24Header_struct.msgType);
-		}
+void WOLF_COMS::printMessage(RFMsg_union * msg) {
+	for (uint8_t i = 0; i < sizeof(msg->msg_bytes); i++) {
+		Serial.print(msg->msg_bytes[i]);
+		Serial.print(", ");
 	}
-	return messageAvailable;
+	Serial.println();
 }
 
-//Returns true is connection established, false if not
-//_msg is message to send to check connection, use heartbeat
-bool WOLF_COMS::establishConnectionTX(nRF24Msg_union *_msg) {
-	if (!sendMessage(_msg)) {
-		if (count < 20) {
-			Serial.print(".");
-			count++;
-		} else {
-			count = 0;
-			Serial.println("!");
-		}
-		return false;
-	}
-	Serial.println(" ");
-	Serial.println("Connection Established");
-
-	return true;	
-}
-
-//establish a connection on a RX radio
-//Call flushBuffer before calling establishConnectionRX
-bool WOLF_COMS::establishConnectionRX() {		
-	if (!_radio.available()) {		
-		if (count < 20) {
-			Serial.print(".");
-			count++;
-		} else {
-			count = 0;
-			Serial.println("!");
-		}	
-		return false;
-	}
-
-	Serial.println(" ");
-	Serial.println("Connection Established");
-	
-	return true;
-}
-
-//flush rx buffer
-void WOLF_COMS::flushRXBuffer() {	
-	if (_radio.available()) {
-		nRF24Msg_union buf;
-		_radio.read(&buf.msg_bytes, sizeof(buf.msg_bytes));
-		Serial.println("Flushing buffer");
-	}
-}
-
-void WOLF_COMS::flushTXBuffer() {
-	_radio.flush_tx();
-}
-
-void WOLF_COMS::encryptMsg(nRF24Msg_union *_msg) {
+void WOLF_COMS::encryptMsg(RFMsg_union *_msg) {
 	randomSeed(millis());
 
 	for (uint8_t i = 0; i < 8; i++) {
@@ -141,7 +93,8 @@ void WOLF_COMS::encryptMsg(nRF24Msg_union *_msg) {
 
 	//print unencrypted message
 	if (extraDebug) {
-		printMsg(_msg);
+		Serial.println("Unencrypted message: ");
+		printMessage(_msg);
 	}
 
 	byte msgCrypt[32];
@@ -160,15 +113,16 @@ void WOLF_COMS::encryptMsg(nRF24Msg_union *_msg) {
 
 	//print encrypted message
 	if (extraDebug) {
-		printMsg(_msg);
+		Serial.println("Encrypted message: ");
+		printMessage(_msg);
 	}
 }
 
-void WOLF_COMS::decryptMsg(nRF24Msg_union * _msg) {
+void WOLF_COMS::decryptMsg(RFMsg_union * _msg) {
 	//print unencrypted message
 	if (extraDebug) {
 		Serial.println("Encrypted message: ");
-		printMsg(_msg);
+		printMessage(_msg);
 	}
 
 	byte seed[8];
@@ -180,25 +134,17 @@ void WOLF_COMS::decryptMsg(nRF24Msg_union * _msg) {
 	if (!chacha.setCounter(seed, sizeof(seed))) {
 		Serial.println("Failed to set decrypt counter!");
 	}
-	nRF24Msg_union decryptedMsg = {};
+	RFMsg_union decryptedMsg = {};
 	chacha.decrypt(decryptedMsg.msg_bytes, _msg->msg_bytes, sizeof(_msg->msg_bytes));
 	
 	//print unencrypted message
 	if (extraDebug) {
 		Serial.println("Decrypted message: ");
-		printMsg(_msg);
+		printMessage(_msg);
 	}
 
 	//copy decrypted data back into union
 	memcpy(_msg->msg_bytes, decryptedMsg.msg_bytes, sizeof(decryptedMsg.msg_bytes));
-}
-
-void WOLF_COMS::printMsg(nRF24Msg_union *_msg) {
-	for (uint8_t i = 0; i < sizeof(_msg->msg_bytes); i++) {
-	Serial.print(_msg->msg_bytes[i]);
-	Serial.print(", ");
-	}
-	Serial.println();
 }
 
 WOLF_COMS::~WOLF_COMS() {

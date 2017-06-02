@@ -4,10 +4,9 @@
  Author:	Travis.rideout
 */
 
-//TODO: Scan for best channel on startup and tell controller radio to switch to that channel
 //TODO: implement ID pairing check
-//TODO: CAN Bus
-//TODO: AHRS calibration status in coms
+//TODO: Gather vehicle info from CAN bus
+//TODO: add CAN heartbeat for controller separate from radio
 
 #include "Teensy_Vehicle_Controller.h"
 
@@ -24,254 +23,101 @@ void setup() {
 	pinMode(ledRedPin, OUTPUT);
 	pinMode(ledGreenPin, OUTPUT);
 	pinMode(ledBluePin, OUTPUT);
-	//pinMode(clearFaultPin, INPUT_PULLUP);
-
+	setLED(0, 0, 125);
+	
+	//initialize objects
 	coms.begin();
 	can.begin();
-
-	// Initialise AHRS sensor
-	if (!bno.begin()) {
-		// There was a problem detecting the BNO055 ... check connections
-		Serial.print("AHRS not detected ... Check wiring!");		
-	} else {
-		displayAHRSDetails();
-		AHRS_active = true;
-		bno.setExtCrystalUse(true);
-	}
+	vehicle_imu.begin();	
 
 	//initialize data
-	initializenRF24Messages();
-	initializeOutputs();
-		
-	prev_time = millis();
-
-	bool ledBlinkState = false;
-	unsigned long localtime = millis();
-	int blinkrate = 1000;
-
-	coms.flushRXBuffer();
-	while (!coms.establishConnectionRX()) {
-		if (millis() - localtime > blinkrate) {
-			localtime = millis();
-			ledBlinkState = !ledBlinkState;
-			if (ledBlinkState) {
-				led.blue = 125;
-			} else {
-				led.blue = 0;
-			}
-			analogWrite(ledBluePin, led.blue);
-		}		
-		delay(100);
-		/*if (millis() - startTime > 60000) {
-		Serial.println(" ");
-		Serial.println("Unable to Establish a Connection");
-		setFault(Unable_To_Establish_Connection);
-		return false;
-		}*/
-	}
-	led.blue = 0;
-	led.green = 125;
-	analogWrite(ledBluePin, led.blue);
-	analogWrite(ledGreenPin, led.green);
+	initializeRFMessages();
 }
 
-void loop() {
-	WOLF_COMS::nRF24Msg_union rxMsg = {};
-	byte pipe = 0;
+void loop() {	
+	if (can.vehicleCANMSg()) {
+		//TODO: Collect data from CAN bus and pack into ack msg
+	}
+
+	//TODO: Collect gui msg data from CAN bus
 	if (coms.receiveMessage(&rxMsg, &pipe)) {
-		WOLF_COMS::nRF24Msg_union ackMsg = {};
-		ackMsg.guiMsg_struct = gui;
-		readAHRS();
-		Serial.println("sending Ack Packet");
-		coms.writeAckMessage(&ackMsg, pipe);
+		setLED(0,125,0);
 
-		parseMessage(&rxMsg);
+		//TODO: determine what type of ack message to return (fault, GUI, other)
+		ackMsg.guiMsg_struct = gui;		
+		coms.sendMessage(&ackMsg, controllerAddress);
 
-		if (fault_state && faultCode == Loss_Of_Signal) {
-			if (coms.establishConnectionRX()) {
-				Serial.println("Connection Re-Established - Fault Self Cleared");
-				clearFault();
-			}
+		parseMessage(&rxMsg);	//TODO: change to passToCAN			
+		heartbeatTimer.reset();
+
+		if (fault_state) {
+			fault_state = false;
 		}
-		//parseMessage(&msg);
-		if (!fault_state) {
-			setOutputs();
-		}
-		prev_time = millis();
-	} else if (millis() - prev_time > heartbeat_timeout && !fault_state) {
-		prev_time = millis();
-		setFault(Loss_Of_Signal);
+
+	} else if (heartbeatTimer.check() && !fault_state) { 
+		Serial.println("Lost radio signal");
+		setLED(0,0,125);
+		fault_state = true;
 	}
-	//if (fault_state) {
-	//	if (digitalRead(clearFaultPin) == 0) {
-	//		unsigned long pressedTime = millis();
-	//		bool clearButtonDown = true;
-	//		while (clearButtonDown) {
-	//			if (millis() - pressedTime > clearFaultTimer) {
-	//				Serial.println("Fault Cleared");
-	//				clearFault();
-	//				clearButtonDown = false;
-	//			}
-	//			else {
-	//				clearButtonDown = !digitalRead(clearFaultPin);
-	//			}
-	//			delay(50);	//debounce
-	//		}
-	//	}
-	//	if (millis() - prev_time > faultPrintTimer) {
-	//		printFault();
-	//		prev_time = millis();
-	//	}
-	//}
+
+	//Broadcast IMU data to CAN bus at set frequency
+	if (imuCANtimer.check() && vehicle_imu.AHRS_active) {
+		IMU::imuUnion imudata = {};
+		vehicle_imu.readAHRS(&imudata.imuData_struct);
+		
+		gui.orient[2] = imudata.imuData_struct.yaw;
+		gui.orient[0] = imudata.imuData_struct.pitch;
+		gui.orient[1] = imudata.imuData_struct.roll;
+		gui.imuStatus = imudata.imuData_struct.status;
+		
+		can.imuCANMsg(imudata);
+	}	
 }
 
-void displayAHRSDetails(void) {
-	sensor_t sensor;
-	bno.getSensor(&sensor);
-	Serial.println("------------------------------------");
-	Serial.print("Sensor:       "); Serial.println(sensor.name);
-	Serial.print("Driver Ver:   "); Serial.println(sensor.version);
-	Serial.print("Unique ID:    "); Serial.println(sensor.sensor_id);
-	Serial.print("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" xxx");
-	Serial.print("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" xxx");
-	Serial.print("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" xxx");
-	Serial.println("------------------------------------");
-	Serial.println("");
-	delay(500);
-}
-
-//initialize data struct to zero values
-void initializenRF24Messages() {
-	control.pairedID = 201;
-	control.msgType = 'C';
-	control.xAxis = 512;
-	control.yAxis = 512;
-	control.button1 = false;
-	control.button2 = false;
-	control.deadman = false;
-	control.ocuBatt = 100;
-
-	heartbeat.msgType = 'H';
+//initialize RF message constants
+void initializeRFMessages() {
 	gui.msgType = 'G';
+	gui.pairedID = 201;
+
 	fault.msgType = 'F';
+	fault.pairedID = 201;
 }
 
-//initialize output object values
-void initializeOutputs() {
-	led.red = 0;
-	led.green = 0;
-	led.blue = 0;
-
-	setOutputs();
-}
-
-
-
-void parseMessage(WOLF_COMS::nRF24Msg_union *msg) {
+void parseMessage(WOLF_COMS::RFMsg_union *msg) {
 	Serial.print("Message Type is: ");
 	Serial.println((char)msg->heartbeatMsg_struct.msgType);
 
 	switch (msg->heartbeatMsg_struct.msgType){
-	case 'H':
+	case WOLF_COMS::heartbeat:
+		can.RFCANMsg(*msg);
 		Serial.print("Heartbeat message recieved: ");
 		Serial.println(msg->heartbeatMsg_struct.count);
 		break;
-	case 'C':
-		//data validity check?
+	case WOLF_COMS::control:
 		//pass to CAN bus
-		can.nRFCANMsg(*msg);
+		can.RFCANMsg(*msg);
 		Serial.print("Control message recieved: ");
-		for (uint8_t i = 0; i < sizeof(msg->msg_bytes); i++) {
-			Serial.print(msg->msg_bytes[i]);
-			Serial.print(", ");
-		}
-		Serial.println();
+		coms.printMessage(msg);
 		//print controls message data for debug
 		break;
-	case 'U':
-		//data validity check?
+	case WOLF_COMS::userFeedback:
 		//pass to CAN bus
 		Serial.println("User request message recieved: ");
-		//print controls message data for debug
+		//print message data for debug
+		break;
+	case WOLF_COMS::fault:
+		//pass to CAN bus
+		Serial.println("Fault message recieved: ");
+		//print message data for debug
 		break;
 	default:
-		//fault or ignore?
 		Serial.println("Invalid message data type");
 		break;
-	}
-	
-
-	//data validity check?
-	//if (newValues.xAxis > 1023 || newValues.xAxis < 0 || newValues.yAxis > 1023 || newValues.yAxis < 0) {
-	//	//setFault(Input_Out_Of_Range);
-	//	Serial.print("Input_Out_Of_Range Fault Detected: ");
-	//	Serial.print("xAxis = ");
-	//	Serial.print(newValues.xAxis);
-	//	Serial.print(", yAxis = ");
-	//	Serial.println(newValues.yAxis);
-
-	//	//trying this instead of set fault
-	//	initializeData(newValues);
-	//	initializeOutputs();
-	//	return;
-	//}		
+	}		
 }
 
-void setOutputs() {
-	analogWrite(ledRedPin, led.red);
-	analogWrite(ledGreenPin, led.green);
-	analogWrite(ledBluePin, led.blue);
+void setLED(byte red, byte green, byte blue) {
+	analogWrite(ledRedPin, red);
+	analogWrite(ledGreenPin, green);
+	analogWrite(ledBluePin, blue);
 }
-
-void printOutputs() {	
-	Serial.print(led.red);
-	Serial.print(", ");
-	Serial.print(led.green);
-	Serial.print(", ");
-	Serial.print(led.blue);
-	Serial.print(", ");
-	Serial.print(control.pairedID);
-	Serial.print(", ");
-	Serial.print((char)control.msgType);
-	Serial.print(", ");
-	Serial.println(control.ocuBatt);
-}
-
-void setFault(faultCodes code) {
-	fault_state = true;
-	faultCode = code;
-	initializenRF24Messages();
-	initializeOutputs();
-	led.red = 125;
-	led.green = 0;
-	led.blue = 0;
-	setOutputs();
-	printFault();
-}
-
-void printFault() {
-	Serial.print("Fault: ");
-	Serial.println(faultCode);
-}
-
-void clearFault() {
-	fault_state = false;
-	faultCode = No_Fault;
-	initializenRF24Messages();
-	led.red = 0;
-	led.green = 0;
-	led.blue = 0;
-	setOutputs();
-	coms.establishConnectionRX();
-}
-
-void readAHRS() {
-	/* Get a new sensor event */
-	sensors_event_t event;
-	bno.getEvent(&event);
-
-	gui.orient[0] = (int)(event.orientation.y * 100);
-	gui.orient[1] = (int)(event.orientation.z * 100);
-	gui.orient[2] = (int)(event.orientation.x * 100);
-}
-

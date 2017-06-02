@@ -6,12 +6,11 @@
 
 //TODO: add BLE for operator GUI
 //TODO: create error handler
-
 //TODO: utilize sleep modes on no user interaction timeouts to save battery
+//TODO: establish connection
 
 #include "Feather_Controller.h"
 
-// the setup function runs once when you press reset or power the board
 void setup() {
 	Serial.begin(115200);
 	
@@ -32,13 +31,10 @@ void setup() {
 
 	prev_time = millis();
 
-	WOLF_COMS::nRF24Msg_union send = {};
+	WOLF_COMS::RFMsg_union send = {};
 	send.heartbeatMsg_struct = heartbeat;
 	send.heartbeatMsg_struct.count = count;
 	send.heartbeatMsg_struct.msgType = 'H';
-	while (!coms.establishConnectionTX(&send)) {
-		delay(3000);
-	}
 }
 
 //realtime loop, not delayed
@@ -47,34 +43,34 @@ void loop() {
 		ocu.calibrateJoysticks();
 	}	
 
-	//All nRF24 calls should be from here to avoid overlap
+	//All radio should be from here to avoid overlap
 	if (millis() - prev_time > message_frequency && ocu.readInputs(&newValues)) {
 		prev_time = millis();
-		WOLF_COMS::nRF24Msg_union send = {};
+		WOLF_COMS::RFMsg_union send = {};
 		newValues.ocuBatt = batt; 
 		send.controlMsg_struct = newValues;
-		if (!coms.sendMessage(&send)) {
-			WOLF_COMS::nRF24Msg_union send = {};
+		if (!coms.sendMessage(&send, vehicleAddress)) {
+			WOLF_COMS::RFMsg_union send = {};
 			send.heartbeatMsg_struct = heartbeat;
 			send.heartbeatMsg_struct.count = count;
 			send.heartbeatMsg_struct.msgType = 'H';
-			while (!coms.establishConnectionTX(&send)) {
+			/*while (!coms.establishConnectionTX(&send)) {
 				delay(3000);
-			}
+			}*/
 		}
 	} else if (millis() - prev_time > heartbeat_frequency) {
 		prev_time = millis();
 		Serial.print("sending heartbeat message: ");
 		count++;
 		Serial.println(count);		
-		WOLF_COMS::nRF24Msg_union send = {};
+		WOLF_COMS::RFMsg_union send = {};
 		send.heartbeatMsg_struct = heartbeat;
 		send.heartbeatMsg_struct.count = count;
 		send.heartbeatMsg_struct.msgType = 'H';
-		if (!coms.sendMessage(&send)) {
-			while (!coms.establishConnectionTX(&send)) {
+		if (!coms.sendMessage(&send, vehicleAddress)) {
+			/*while (!coms.establishConnectionTX(&send)) {
 				delay(3000);
-			}
+			}*/
 		} 		
 	}
 
@@ -86,7 +82,8 @@ void loop() {
 
 	//read ack messages
 	//TODO: sort and parse messages, shuttle to BT
-	if (coms.receiveAckMessage(&ackMsg)) {
+	uint8_t from;
+	if (coms.receiveAckMessage(&ackMsg, &from)) {
 		Serial.print("Ack msg type is: ");
 		Serial.println((char)ackMsg.nRF24Header_struct.msgType);
 
